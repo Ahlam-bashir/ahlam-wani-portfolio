@@ -1,4 +1,35 @@
 mock_provider "aws" {
+  mock_resource "aws_lb" {
+    defaults = {
+      arn        = "arn:aws:elasticloadbalancing:ap-south-1:123456789012:loadbalancer/app/learnops/0123456789abcdef"
+      arn_suffix = "app/learnops/0123456789abcdef"
+      dns_name   = "learnops.example.test"
+    }
+  }
+  mock_resource "aws_lb_target_group" {
+    defaults = {
+      arn        = "arn:aws:elasticloadbalancing:ap-south-1:123456789012:targetgroup/learnops/0123456789abcdef"
+      arn_suffix = "targetgroup/learnops/0123456789abcdef"
+    }
+  }
+  mock_resource "aws_lb_listener" {
+    defaults = { arn = "arn:aws:elasticloadbalancing:ap-south-1:123456789012:listener/app/learnops/0123456789abcdef/0123456789abcdef" }
+  }
+  mock_resource "aws_iam_role" {
+    defaults = { arn = "arn:aws:iam::123456789012:role/learnops-test-role" }
+  }
+  mock_resource "aws_ecs_cluster" {
+    defaults = {
+      id  = "arn:aws:ecs:ap-south-1:123456789012:cluster/learnops"
+      arn = "arn:aws:ecs:ap-south-1:123456789012:cluster/learnops"
+    }
+  }
+  mock_resource "aws_ecs_task_definition" {
+    defaults = {
+      arn      = "arn:aws:ecs:ap-south-1:123456789012:task-definition/learnops:1"
+      revision = 1
+    }
+  }
 
   mock_data "aws_availability_zones" {
     defaults = {
