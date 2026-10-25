@@ -1,0 +1,122 @@
+name: LearnOps AWS lab (manual)
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: "Choose a deployment or app infrastructure teardown"
+        type: choice
+        options: [deploy, destroy]
+        default: deploy
+      apply:
+        description: "Apply the plan? Leave unchecked to review a plan only."
+        type: boolean
+        default: false
+      existing_image_tag:
+        description: "Optional full 40-character commit tag for rollback; empty builds this commit"
+        type: string
+        default: ""
+      acknowledge_costs:
+        description: "I understand that this manual AWS exercise can incur charges"
+        type: boolean
+        required: true
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: learnops-aws-lab
+  cancel-in-progress: false
+jobs:
+  aws-lab:
+    if: github.ref == 'refs/heads/main' && inputs.acknowledge_costs
+    environment: devops-lab
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      id-token: write
+    defaults:
+      run:
+        working-directory: devops-lab
+    env:
+      AWS_REGION: ${{ vars.LEARNOPS_AWS_REGION }}
+      ROLE_ARN: ${{ vars.LEARNOPS_ROLE_ARN }}
+      STATE_BUCKET: ${{ vars.LEARNOPS_STATE_BUCKET }}
+      ECR_URI: ${{ vars.LEARNOPS_ECR_URI }}
+      TF_VAR_allowed_ingress_cidr: ${{ vars.LEARNOPS_ALLOWED_CIDR }}
+      TF_VAR_aws_region: ${{ vars.LEARNOPS_AWS_REGION }}
+      TF_IN_AUTOMATION: "true"
+      OPERATION: ${{ inputs.operation }}
+      APPLY_PLAN: ${{ inputs.apply }}
+      EXISTING_IMAGE_TAG: ${{ inputs.existing_image_tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check explicit AWS setup
+        run: |
+          for key in AWS_REGION ROLE_ARN STATE_BUCKET ECR_URI TF_VAR_allowed_ingress_cidr; do
+            if [ -z "${!key}" ]; then echo "Missing $key. Follow docs/aws-setup.md first."; exit 1; fi
+          done
+          case "$OPERATION" in deploy|destroy) ;; *) exit 1 ;; esac
+          TAG="${EXISTING_IMAGE_TAG:-$GITHUB_SHA}"
+          if [[ ! "$TAG" =~ ^[a-f0-9]{40}$ ]]; then echo 'Image tag must be a full lowercase commit SHA'; exit 1; fi
+          echo "TF_VAR_commit_sha=$TAG" >> "$GITHUB_ENV"
+          echo "TF_VAR_image_uri=$ECR_URI:$TAG" >> "$GITHUB_ENV"
+          echo "IMAGE_TAG=$TAG" >> "$GITHUB_ENV"
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: devops-lab/package-lock.json
+      - name: Recheck the application before delivery
+        if: inputs.operation == 'deploy' && inputs.existing_image_tag == ''
+        run: |
+          npm ci --no-audit --no-fund
+          npm test
+          npm run build
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: 1.14.6
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ env.ROLE_ARN }}
+          role-session-name: learnops-${{ github.run_id }}
+      - name: Build or select an immutable image
+        if: inputs.operation == 'deploy'
+        run: |
+          REPOSITORY="${ECR_URI##*/}"
+          if aws ecr describe-images --repository-name "$REPOSITORY" --image-ids imageTag="$IMAGE_TAG" > /dev/null 2>&1; then
+            echo 'Using the existing immutable image tag.'
+          elif [ -n "$EXISTING_IMAGE_TAG" ]; then
+            echo 'Requested rollback image does not exist.'; exit 1
+          else
+            REGISTRY="${ECR_URI%%/*}"
+            aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$REGISTRY"
+            docker build --platform linux/amd64 --tag "$TF_VAR_image_uri" .
+            docker push "$TF_VAR_image_uri"
+          fi
+      - name: Initialize locked remote state
+        run: |
+          terraform -chdir=infra/app init -input=false -lockfile=readonly \
+            -backend-config="bucket=$STATE_BUCKET" \
+            -backend-config="key=learnops/dev.tfstate" \
+            -backend-config="region=$AWS_REGION" \
+            -backend-config="encrypt=true" \
+            -backend-config="use_lockfile=true"
+      - name: Reviewable infrastructure plan
+        run: |
+          if [ "$OPERATION" = 'destroy' ]; then
+            terraform -chdir=infra/app plan -input=false -destroy -out=lab.tfplan
+          else
+            terraform -chdir=infra/app plan -input=false -out=lab.tfplan
+          fi
+          echo '### LearnOps infrastructure plan' >> "$GITHUB_STEP_SUMMARY"
+          echo 'No apply runs unless the manual apply checkbox was selected. Review this log before opting into another run.' >> "$GITHUB_STEP_SUMMARY"
+          terraform -chdir=infra/app show -no-color lab.tfplan
+      - name: Apply only after explicit manual opt-in
+        if: inputs.apply
+        run: terraform -chdir=infra/app apply -input=false lab.tfplan
+      - name: Deployment outputs
+        if: inputs.apply && inputs.operation == 'deploy'
+        run: terraform -chdir=infra/app output

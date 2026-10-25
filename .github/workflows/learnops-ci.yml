@@ -1,0 +1,83 @@
+name: LearnOps CI
+on:
+  push:
+    branches: [main]
+    paths: ["devops-lab/**", ".github/workflows/learnops-ci.yml"]
+  pull_request:
+    paths: ["devops-lab/**", ".github/workflows/learnops-ci.yml"]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: learnops-ci-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  application:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: devops-lab
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: devops-lab/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npm test
+      - run: npm run build
+      - name: Production HTTP smoke test
+        run: |
+          npm start > /tmp/learnops.log 2>&1 &
+          APP_PID=$!
+          trap 'kill "$APP_PID" 2>/dev/null || true; cat /tmp/learnops.log' EXIT
+          for attempt in $(seq 1 20); do
+            if curl --fail --silent http://localhost:3000/health/ready > /dev/null; then break; fi
+            sleep 1
+          done
+          npm run smoke
+  container:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: devops-lab
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build runtime image
+        run: docker build --platform linux/amd64 --tag learnops:test .
+      - name: Test the hardened container
+        run: |
+          docker run --detach --name learnops --read-only --cap-drop ALL --security-opt no-new-privileges --publish 127.0.0.1:3000:3000 learnops:test
+          trap 'docker logs learnops; docker rm --force learnops' EXIT
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://localhost:3000/health/ready > /dev/null; then break; fi
+            sleep 2
+          done
+          node scripts/smoke.mjs
+          test "$(docker exec learnops id -u)" != '0'
+          STATUS=$(curl --silent --output /tmp/drill.json --write-out '%{http_code}' --request POST --header 'Content-Type: application/json' --data '{"degraded":true}' http://localhost:3000/api/drills/readiness)
+          test "$STATUS" = '403'
+  terraform:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: 1.14.6
+      - run: terraform -chdir=devops-lab/infra fmt -check -recursive
+      - run: terraform -chdir=devops-lab/infra/bootstrap init -input=false -lockfile=readonly
+      - run: terraform -chdir=devops-lab/infra/bootstrap validate
+      - run: terraform -chdir=devops-lab/infra/app init -backend=false -input=false -lockfile=readonly
+      - run: terraform -chdir=devops-lab/infra/app validate
+      - name: Mock AWS tests — no cloud account or resources
+        run: terraform -chdir=devops-lab/infra/app test

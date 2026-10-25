@@ -1,0 +1,16 @@
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.auto.tfvars
+terraform.tfvars
+backend.hcl
+crash.log
+coverage/
+*.log
+.DS_Store

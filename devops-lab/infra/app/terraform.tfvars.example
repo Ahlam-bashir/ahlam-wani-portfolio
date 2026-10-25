@@ -1,0 +1,5 @@
+aws_region = "ap-south-1"
+project_name = "learnops"
+allowed_ingress_cidr = "203.0.113.10/32" # Replace with your actual public IPv4 address.
+commit_sha = "0000000000000000000000000000000000000000" # Replace with an image tag you pushed.
+image_uri = "123456789012.dkr.ecr.ap-south-1.amazonaws.com/learnops:0000000000000000000000000000000000000000"
