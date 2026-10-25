@@ -1,12 +1,14 @@
 # LearnOps — Release & Reliability Lab
 
+[![LearnOps CI](https://github.com/Ahlam-bashir/ahlam-wani-portfolio/actions/workflows/learnops-ci.yml/badge.svg)](https://github.com/Ahlam-bashir/ahlam-wani-portfolio/actions/workflows/learnops-ci.yml)
+
 A hands-on DevOps practice project by Ahlam Wani. Start with a React dashboard and a Node.js service, then work through containerization, CI, AWS image delivery, infrastructure as code, monitoring, incident recovery, and cleanup.
 
 This is a learning project. The app's live metrics are real local-process measurements; its AWS delivery diagram is a blueprint until **you** deploy the infrastructure. No AWS deployment is performed merely by pushing this code.
 
 ## Start locally
 
-Use Node.js 24 LTS (`nvm use` if you use nvm).
+Use Node.js 24 LTS. If you use nvm, run `nvm install` after entering `devops-lab/` to install/select the version in `.nvmrc`.
 
 ```bash
 git clone https://github.com/Ahlam-bashir/ahlam-wani-portfolio.git
