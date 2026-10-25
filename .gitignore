@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.openai/
+.netlify/
+.env
+.env.*
+!.env.example
+*.local
+.DS_Store
+*.log

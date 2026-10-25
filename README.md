@@ -49,7 +49,7 @@ Import the repository and use:
 
 For a manual deployment, run `npm ci` and `npm run build`, then upload the **contents of `dist/`**. Uploading the React source ZIP directly to a static drag-and-drop deployment will not build the application.
 
-Keep the repository private and configure hosting access controls before deploying outside the existing private host. The `noindex` directives discourage indexing; hosting access controls determine who can view the site.
+Source visibility is managed separately on GitHub. Configure hosting access controls before deploying outside the existing private host. The `noindex` directives discourage indexing; hosting access controls determine who can view the site.
 
 ## Content
 
